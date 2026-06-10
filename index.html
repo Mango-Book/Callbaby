@@ -173,14 +173,7 @@
         .empty-state{text-align:center;padding:32px 16px;color:var(--text-light)}
         .empty-state i{font-size:36px;margin-bottom:8px;display:block;color:var(--border)}
         .empty-state p{font-size:14px}
-        @media(max-width:480px){
-            .header-brand{font-size:26px}
-            .profile-name{font-size:18px}
-            .call-overlay-name,.incoming-name{font-size:20px}
-            .call-video-area #localVideo{width:100px!important;height:140px!important;bottom:90px;left:12px;border-radius:12px}
-            .call-overlay-dp,.incoming-dp{width:90px;height:90px}
-            .incoming-btns{gap:44px}
-        }
+        @media(max-width:480px){.header-brand{font-size:26px}.profile-name{font-size:18px}.call-overlay-name,.incoming-name{font-size:20px}.call-video-area #localVideo{width:100px!important;height:140px!important;bottom:90px;left:12px;border-radius:12px}.call-overlay-dp,.incoming-dp{width:90px;height:90px}.incoming-btns{gap:44px}}
         @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
     </style>
 </head>
@@ -254,7 +247,6 @@
     </main>
 </div>
 
-<!-- ===== POST MODAL ===== -->
 <div class="modal-backdrop" id="postModal">
     <div class="modal-card">
         <div class="modal-head"><h3>Create Post</h3><button class="modal-close" id="closePostModal"><i class="fas fa-times"></i></button></div>
@@ -268,7 +260,6 @@
     </div>
 </div>
 
-<!-- ===== EDIT PROFILE MODAL ===== -->
 <div class="modal-backdrop" id="editModal">
     <div class="modal-card">
         <div class="modal-head"><h3>Edit Profile</h3><button class="modal-close" id="closeEditModal"><i class="fas fa-times"></i></button></div>
@@ -282,7 +273,6 @@
     </div>
 </div>
 
-<!-- ===== INCOMING CALL ===== -->
 <div class="incoming-overlay" id="incomingOverlay">
     <img id="incomingDp" class="incoming-dp" alt="">
     <div class="incoming-name" id="incomingName"></div>
@@ -293,7 +283,6 @@
     </div>
 </div>
 
-<!-- ===== ACTIVE CALL ===== -->
 <div class="call-overlay" id="callOverlay">
     <div class="call-voice-info" id="callVoiceInfo">
         <img id="callOverlayDp" class="call-overlay-dp" alt="">
@@ -326,8 +315,8 @@
     const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
     const USERS=[
-        {id:'566e8b0b-a07a-4442-b18d-2a3ca87f7992',username:'mango1',password:'mango1726'},
-        {id:'f960d7a8-ec35-4ff6-910a-6571c8b74caa',username:'mango2',password:'mango1726'}
+        {id:'566e8b0b-a07a-4442-b18d-2a3ca87f7992',username:'mango1'},
+        {id:'f960d7a8-ec35-4ff6-910a-6571c8b74caa',username:'mango2'}
     ];
     const PLACEHOLDER='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="#E4E6EB" width="100" height="100"/><text x="50" y="62" text-anchor="middle" fill="#8A8D91" font-size="40" font-family="sans-serif">?</text></svg>');
 
@@ -398,3 +387,294 @@
     });
 
     async function initApp(user){
+        currentUser=user;otherUser=USERS.find(u=>u.id!==user.id);
+        document.getElementById('loginPage').style.display='none';
+        document.getElementById('mainApp').style.display='block';
+        const{data:profile}=await db.from('users').select('*').eq('id',user.id).single();
+        if(profile)currentUser={...currentUser,...profile};
+        const{data:op}=await db.from('users').select('*').eq('id',otherUser.id).single();
+        if(op)otherUser={...otherUser,...op};
+        loadProfileUI();loadCallBar();loadFeed();
+        subscribeUpdates();subscribeCalls();
+        if(pollInterval)clearInterval(pollInterval);
+        pollInterval=setInterval(pollCallSignals,2000);
+        if(feedPollInterval)clearInterval(feedPollInterval);
+        feedPollInterval=setInterval(pollFeed,5000);
+    }
+
+    function loadProfileUI(){
+        const dp=document.getElementById('profileDp');dp.src=getDp(currentUser);dp.onerror=function(){imgFall(this)};
+        document.getElementById('profileName').textContent=currentUser.username;
+        document.getElementById('profileBio').textContent=currentUser.bio||'No bio yet';
+        const cdp=document.getElementById('createDp');cdp.src=getDp(currentUser);cdp.onerror=function(){imgFall(this)};
+    }
+    function loadCallBar(){
+        const dp=document.getElementById('callBarDp');dp.src=getDp(otherUser);dp.onerror=function(){imgFall(this)};
+        document.getElementById('callBarName').textContent=otherUser.username;
+    }
+
+    /* ===== FEED ===== */
+    async function loadFeed(){
+        const{data,error}=await db.from('posts').select(`id,content,image,created_at,user_id,users!posts_user_id_fkey(username,profile_picture),comments(id,content,created_at,user_id,users!comments_user_id_fkey(username,profile_picture)),likes(id,user_id)`).order('created_at',{ascending:false});
+        if(error){console.error('Feed:',error);return}
+        const c=document.getElementById('feedContainer');
+        if(!data||!data.length){c.innerHTML='<div class="empty-state"><i class="far fa-newspaper"></i><p>No posts yet. Be the first to share something.</p></div>';return}
+        const hash=JSON.stringify(data.map(p=>`${p.id}-${p.likes?.length||0}-${p.comments?.length||0}`));
+        if(hash===lastFeedDataHash)return;
+        lastFeedDataHash=hash;
+        c.innerHTML='';
+        data.forEach(post=>{
+            const lk=post.likes?post.likes.length:0,il=post.likes?post.likes.some(l=>l.user_id===currentUser.id):false,cc=post.comments?post.comments.length:0;
+            const d=document.createElement('div');d.className='card post';
+            d.innerHTML=`<div class="post-header"><img src="${getDp(post.users)}" class="post-dp" alt="" onerror="imgFall(this)"><div class="post-meta"><div class="post-author">${escHtml(post.users.username)}</div><div class="post-time">${fmtDate(post.created_at)}</div></div>${post.user_id===currentUser.id?`<button class="post-delete" data-post-id="${post.id}"><i class="fas fa-trash-alt"></i></button>`:''}</div>${post.content?`<div class="post-body"><div class="post-text">${escHtml(post.content)}</div></div>`:''}${post.image?`<img src="${post.image}" class="post-image" alt="" loading="lazy" onerror="imgFall(this)">`:''}<div class="post-stats"><div class="post-stats-left">${lk>0?`<span class="like-react-icon"><i class="fas fa-thumbs-up" style="font-size:9px"></i></span> ${lk}`:''}</div>${cc>0?`<div>${cc} comment${cc!==1?'s':''}</div>`:''}</div><div class="post-actions-row"><button class="post-action-btn ${il?'liked':''}" data-action="like" data-post-id="${post.id}"><i class="${il?'fas':'far'} fa-thumbs-up"></i> Like</button><button class="post-action-btn" data-action="comment-focus" data-post-id="${post.id}"><i class="far fa-comment"></i> Comment</button></div>${post.comments&&post.comments.length?`<div class="comments-wrap">${post.comments.map(cv=>`<div class="comment"><img src="${getDp(cv.users)}" class="comment-dp" alt="" onerror="imgFall(this)"><div><div class="comment-bubble"><div class="comment-author">${escHtml(cv.users.username)}</div><div class="comment-text">${escHtml(cv.content)}</div></div><div class="comment-footer"><span>${fmtDate(cv.created_at)}</span>${cv.user_id===currentUser.id?`<button class="del-btn" data-comment-id="${cv.id}">Delete</button>`:''}</div></div></div>`).join('')}</div>`:''}<div class="comment-input-row"><img src="${getDp(currentUser)}" class="comment-input-dp" alt="" onerror="imgFall(this)"><input type="text" class="comment-input-field" data-post-id="${post.id}" placeholder="Write a comment..."><button class="comment-send" data-post-id="${post.id}"><i class="fas fa-paper-plane"></i></button></div>`;
+            c.appendChild(d);
+        });
+        c.querySelectorAll('[data-action="like"]').forEach(b=>b.addEventListener('click',()=>likePost(b.dataset.postId)));
+        c.querySelectorAll('[data-action="comment-focus"]').forEach(b=>b.addEventListener('click',()=>{const i=c.querySelector(`.comment-input-field[data-post-id="${b.dataset.postId}"]`);if(i)i.focus()}));
+        c.querySelectorAll('.post-delete').forEach(b=>b.addEventListener('click',()=>{if(confirm('Delete this post?'))deletePost(b.dataset.postId)}));
+        c.querySelectorAll('.del-btn').forEach(b=>b.addEventListener('click',()=>deleteComment(b.dataset.commentId)));
+        c.querySelectorAll('.comment-send').forEach(b=>b.addEventListener('click',()=>{const i=c.querySelector(`.comment-input-field[data-post-id="${b.dataset.postId}"]`);if(i&&i.value.trim())addComment(b.dataset.postId,i.value.trim())}));
+        c.querySelectorAll('.comment-input-field').forEach(i=>i.addEventListener('keydown',e=>{if(e.key==='Enter'&&i.value.trim())addComment(i.dataset.postId,i.value.trim())}));
+    }
+
+    async function pollFeed(){
+        if(!currentUser)return;
+        try{const{data,error}=await db.from('posts').select('id,likes(id),comments(id)').order('created_at',{ascending:false});
+        if(error||!data)return;
+        const hash=JSON.stringify(data.map(p=>`${p.id}-${p.likes?.length||0}-${p.comments?.length||0}`));
+        if(hash!==lastFeedDataHash){lastFeedDataHash='';loadFeed()}}catch(e){}
+    }
+
+    async function likePost(pid){lastFeedDataHash='';const{error}=await db.from('likes').insert([{post_id:pid,user_id:currentUser.id}]);if(error&&error.code!=='23505')toast('Like failed');loadFeed()}
+    async function addComment(pid,content){lastFeedDataHash='';const{error}=await db.from('comments').insert([{post_id:pid,user_id:currentUser.id,content}]);if(error)toast('Comment failed');loadFeed()}
+    async function deletePost(pid){lastFeedDataHash='';await db.from('likes').delete().eq('post_id',pid);await db.from('comments').delete().eq('post_id',pid);await db.from('posts').delete().eq('id',pid);loadFeed()}
+    async function deleteComment(cid){lastFeedDataHash='';await db.from('comments').delete().eq('id',cid);loadFeed()}
+
+    /* ===== POST MODAL ===== */
+    document.getElementById('openPostModal').addEventListener('click',openPostModal);
+    document.getElementById('openPostPhoto').addEventListener('click',()=>{openPostModal();setTimeout(()=>document.getElementById('postFileInput').click(),250)});
+    document.getElementById('feelingBtn').addEventListener('click',()=>{openPostModal();setTimeout(()=>{const t=document.getElementById('postTextarea');if(!t.value)t.value='is feeling ';t.focus();t.setSelectionRange(t.value.length,t.value.length)},150)});
+    document.getElementById('liveBtn').addEventListener('click',()=>toast('Live coming soon'));
+    document.getElementById('closePostModal').addEventListener('click',closePostModal);
+    document.getElementById('cancelPost').addEventListener('click',closePostModal);
+    document.getElementById('postModal').addEventListener('click',e=>{if(e.target===e.currentTarget)closePostModal()});
+    function openPostModal(){document.getElementById('postModalDp').src=getDp(currentUser);document.getElementById('postModalDp').onerror=function(){imgFall(this)};document.getElementById('postModalName').textContent=currentUser.username;document.getElementById('postTextarea').value='';document.getElementById('postImgPreview').classList.remove('show');document.getElementById('postFileInput').value='';postFile=null;document.getElementById('postModal').classList.add('open');setTimeout(()=>document.getElementById('postTextarea').focus(),120)}
+    function closePostModal(){document.getElementById('postModal').classList.remove('open');postFile=null}
+    document.getElementById('postFileInput').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;postFile=f;const r=new FileReader();r.onload=ev=>{document.getElementById('postImgPreviewImg').src=ev.target.result;document.getElementById('postImgPreview').classList.add('show')};r.readAsDataURL(f)});
+    document.getElementById('removePostImg').addEventListener('click',()=>{postFile=null;document.getElementById('postImgPreview').classList.remove('show');document.getElementById('postFileInput').value=''});
+    document.getElementById('submitPost').addEventListener('click',async()=>{
+        const content=document.getElementById('postTextarea').value.trim();
+        if(!content&&!postFile){toast('Write something or add a photo');return}
+        let imageUrl=null;
+        if(postFile){const path=`${currentUser.id}/${Date.now()}_${postFile.name}`;const{error:upErr}=await db.storage.from('profile-pics').upload(path,postFile,{upsert:true});if(upErr){toast('Image upload failed: '+upErr.message);return}const{data:urlData}=db.storage.from('profile-pics').getPublicUrl(path);imageUrl=urlData.publicUrl}
+        const{error}=await db.from('posts').insert([{user_id:currentUser.id,content:content||'',image:imageUrl}]);
+        if(error){toast('Post failed: '+error.message);return}
+        lastFeedDataHash='';closePostModal();loadFeed();toast('Posted!');
+    });
+
+    /* ===== EDIT PROFILE MODAL ===== */
+    document.getElementById('editProfileBtn').addEventListener('click',()=>{document.getElementById('editName').value=currentUser.username||'';document.getElementById('editBio').value=currentUser.bio||'';document.getElementById('editDpPreview').classList.remove('show');document.getElementById('editDpInput').value='';editDpFile=null;document.getElementById('editModal').classList.add('open')});
+    document.getElementById('closeEditModal').addEventListener('click',()=>document.getElementById('editModal').classList.remove('open'));
+    document.getElementById('cancelEdit').addEventListener('click',()=>document.getElementById('editModal').classList.remove('open'));
+    document.getElementById('editModal').addEventListener('click',e=>{if(e.target===e.currentTarget)document.getElementById('editModal').classList.remove('open')});
+    document.getElementById('editDpInput').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;editDpFile=f;const r=new FileReader();r.onload=ev=>{document.getElementById('editDpPreviewImg').src=ev.target.result;document.getElementById('editDpPreview').classList.add('show')};r.readAsDataURL(f)});
+    document.getElementById('removeEditDp').addEventListener('click',()=>{editDpFile=null;document.getElementById('editDpPreview').classList.remove('show');document.getElementById('editDpInput').value=''});
+    document.getElementById('saveEdit').addEventListener('click',async()=>{
+        const newName=document.getElementById('editName').value.trim()||currentUser.username,newBio=document.getElementById('editBio').value.trim();
+        let dpUrl=currentUser.profile_picture||PLACEHOLDER;
+        if(editDpFile){const path=`${currentUser.id}/dp_${Date.now()}_${editDpFile.name}`;const{error:upErr}=await db.storage.from('profile-pics').upload(path,editDpFile,{upsert:true});if(upErr){toast('Photo upload failed: '+upErr.message)}else{const{data:urlData}=db.storage.from('profile-pics').getPublicUrl(path);dpUrl=urlData.publicUrl;toast('Photo uploaded')}}
+        currentUser.username=newName;currentUser.bio=newBio;currentUser.profile_picture=dpUrl;
+        localStorage.setItem('loggedInUser',JSON.stringify(currentUser));
+        const{error:dbErr}=await db.from('users').upsert({id:currentUser.id,username:newName,bio:newBio,profile_picture:dpUrl},{onConflict:'id'});
+        if(dbErr)toast('Save failed: '+dbErr.message);else toast('Profile updated');
+        loadProfileUI();loadCallBar();loadFeed();editDpFile=null;
+        document.getElementById('editModal').classList.remove('open');
+    });
+
+    /* ===== CLEAR DATA ===== */
+    document.getElementById('clearDataBtn').addEventListener('click',async()=>{
+        if(!confirm('Clear ALL data? This cannot be undone.'))return;
+        await db.from('likes').delete().neq('id','00000000-0000-0000-0000-000000000000');
+        await db.from('comments').delete().neq('id','00000000-0000-0000-0000-000000000000');
+        await db.from('posts').delete().neq('id','00000000-0000-0000-0000-000000000000');
+        await db.from('calls').delete().neq('id','00000000-0000-0000-0000-000000000000');
+        currentUser.profile_picture=PLACEHOLDER;currentUser.bio='';
+        localStorage.setItem('loggedInUser',JSON.stringify(currentUser));
+        await db.from('users').upsert({id:currentUser.id,username:currentUser.username,bio:'',profile_picture:PLACEHOLDER},{onConflict:'id'});
+        lastFeedDataHash='';loadProfileUI();loadFeed();toast('All data cleared');
+    });
+
+    /* ===== SUBSCRIPTIONS ===== */
+    function subscribeUpdates(){
+        if(updatesChannel)db.removeChannel(updatesChannel);
+        updatesChannel=db.channel('updates-ch')
+            .on('postgres_changes',{event:'*',schema:'public',table:'posts'},()=>{lastFeedDataHash='';loadFeed()})
+            .on('postgres_changes',{event:'*',schema:'public',table:'comments'},()=>{lastFeedDataHash='';loadFeed()})
+            .on('postgres_changes',{event:'*',schema:'public',table:'likes'},()=>{lastFeedDataHash='';loadFeed()})
+            .subscribe(s=>{if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'){setTimeout(()=>{subscribeUpdates();retryDelayUp=Math.min(retryDelayUp*2,30000)},retryDelayUp)}else if(s==='SUBSCRIBED'){retryDelayUp=2000}});
+    }
+    function subscribeCalls(){
+        if(callsChannel)db.removeChannel(callsChannel);
+        callsChannel=db.channel('calls-ch')
+            .on('postgres_changes',{event:'INSERT',schema:'public',table:'calls',filter:`receiver_id=eq.${currentUser.id}`},p=>{
+                if(!processedCallIds.has(p.new.id)){processedCallIds.add(p.new.id);handleCallSignal(p.new)}
+            })
+            .subscribe(s=>{if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'){setTimeout(()=>{subscribeCalls();retryDelayCall=Math.min(retryDelayCall*2,30000)},retryDelayCall)}else if(s==='SUBSCRIBED'){retryDelayCall=2000}});
+    }
+
+    async function pollCallSignals(){
+        if(!currentUser)return;
+        try{const{data,error}=await db.from('calls').select('*').eq('receiver_id',currentUser.id).order('created_at',{ascending:true});
+        if(error||!data)return;
+        data.forEach(call=>{if(!processedCallIds.has(call.id)){processedCallIds.add(call.id);handleCallSignal(call)}})}catch(e){}
+    }
+
+    /* ===== CALL SIGNAL HANDLER ===== */
+    async function handleCallSignal(call){
+        const type=call.type;
+        if(type==='offer'){if(callState!=='idle')return;pendingOffer=call;showIncomingCall(call.sender_id,checkOfferIsVideo(call.data))}
+        else if(type==='answer'&&peerConnection){const answer=parseSDP(call.data);if(answer){try{if(!peerConnection.remoteDescription||!peerConnection.remoteDescription.type){await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));drainIceQueue()}}catch(e){console.error('Set remote desc error:',e)}}}
+        else if(type==='ice-candidate'&&peerConnection){const candidate=parseCandidate(call.data);if(candidate)queueOrAddIce(candidate)}
+        else if(type==='reject'){toast('Call was declined');endCall()}
+        else if(type==='cancel'){stopRingtone();document.getElementById('incomingOverlay').classList.remove('open');pendingOffer=null;toast('Call cancelled')}
+        else if(type==='end'){endCall()}
+    }
+
+    async function queueOrAddIce(candidate){if(peerConnection&&peerConnection.remoteDescription&&peerConnection.remoteDescription.type){try{await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))}catch(e){}}else{iceQueue.push(candidate)}}
+    async function drainIceQueue(){while(iceQueue.length>0){const c=iceQueue.shift();try{await peerConnection.addIceCandidate(new RTCIceCandidate(c))}catch(e){}}}
+
+    function showIncomingCall(senderId,isVideo){
+        if(callState!=='idle')return;
+        const sender=USERS.find(u=>u.id===senderId);
+        document.getElementById('incomingDp').src=getDp(sender);document.getElementById('incomingDp').onerror=function(){imgFall(this)};
+        document.getElementById('incomingName').textContent=sender?.username||'Unknown';
+        document.getElementById('incomingType').textContent=isVideo?'Video Call':'Voice Call';
+        document.getElementById('incomingOverlay').classList.add('open');
+        startRingtone();
+    }
+
+    document.getElementById('acceptCallBtn').addEventListener('click',async()=>{
+        stopRingtone();document.getElementById('incomingOverlay').classList.remove('open');
+        if(!pendingOffer)return;
+        try{await handleAcceptCall(pendingOffer)}catch(e){console.error('Accept error:',e);toast('Call failed: '+e.message);endCall()}
+    });
+    document.getElementById('rejectCallBtn').addEventListener('click',async()=>{
+        stopRingtone();document.getElementById('incomingOverlay').classList.remove('open');
+        if(pendingOffer){await sendCallSignal(pendingOffer.sender_id,'reject','{}');await db.from('calls').delete().eq('id',pendingOffer.id)}
+        pendingOffer=null;
+    });
+
+    async function handleAcceptCall(call){
+        const offer=parseSDP(call.data);if(!offer)throw new Error('Invalid offer data');
+        currentCallIsVideo=checkOfferIsVideo(call.data);
+        const mediaOk=await acquireMedia(currentCallIsVideo);if(!mediaOk)throw new Error('Microphone/Camera access denied');
+        peerConnection=new RTCPeerConnection(RTC_CONFIG);
+        localStream.getTracks().forEach(t=>peerConnection.addTrack(t,localStream));
+        setupPeerConnection(call.sender_id);
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));drainIceQueue();
+        const answer=await peerConnection.createAnswer();await peerConnection.setLocalDescription(answer);
+        const ok=await sendCallSignal(call.sender_id,'answer',JSON.stringify(answer));if(!ok)throw new Error('Failed to send answer');
+        await db.from('calls').delete().eq('id',call.id);
+        callState='connecting';showCallOverlay(call.sender_id,'Connecting...');pendingOffer=null;
+    }
+
+    document.getElementById('voiceCallBtn').addEventListener('click',()=>initiateCall(false));
+    document.getElementById('videoCallBtn').addEventListener('click',()=>initiateCall(true));
+
+    async function initiateCall(isVideo){
+        if(callState!=='idle'){toast('Already in a call');return}
+        currentCallIsVideo=isVideo;
+        const mediaOk=await acquireMedia(isVideo);if(!mediaOk)return;
+        peerConnection=new RTCPeerConnection(RTC_CONFIG);
+        localStream.getTracks().forEach(t=>peerConnection.addTrack(t,localStream));
+        setupPeerConnection(otherUser.id);
+        const offer=await peerConnection.createOffer();await peerConnection.setLocalDescription(offer);
+        const ok=await sendCallSignal(otherUser.id,'offer',JSON.stringify(offer));
+        if(!ok){toast('Failed to start call');endCall();return}
+        callState='calling';showCallOverlay(otherUser.id,'Calling...');startCallTimeout();
+    }
+
+    function setupPeerConnection(partnerId){
+        const remoteAudio=document.getElementById('remoteAudio');
+        const remoteVideo=document.getElementById('remoteVideo');
+        peerConnection.ontrack=e=>{
+            const stream=(e.streams&&e.streams.length>0)?e.streams[0]:null;
+            if(stream){remoteVideo.srcObject=stream;remoteAudio.srcObject=stream;remoteVideo.play().catch(()=>{setTimeout(()=>remoteVideo.play().catch(()=>{}),800)});remoteAudio.play().catch(()=>{setTimeout(()=>remoteAudio.play().catch(()=>{}),800)})}
+            else{let ex=remoteVideo.srcObject;if(!ex){ex=new MediaStream();remoteVideo.srcObject=ex;remoteAudio.srcObject=ex}ex.addTrack(e.track);remoteVideo.play().catch(()=>{});remoteAudio.play().catch(()=>{})}
+        };
+        peerConnection.onicecandidate=e=>{if(e.candidate)sendCallSignal(partnerId,'ice-candidate',JSON.stringify(e.candidate))};
+        peerConnection.onconnectionstatechange=()=>{
+            const s=peerConnection.connectionState;
+            if(s==='connected'){callState='connected';clearCallTimeout();document.getElementById('callOverlayStatus').textContent='Connected';document.getElementById('callOverlayStatus').style.display='block';document.getElementById('callOverlayTimer').style.display='block';startCallTimer();if(currentCallIsVideo){document.getElementById('callVideoHeader').classList.add('show');updateVideoTimer()}if(remoteVideo.srcObject)remoteVideo.play().catch(()=>{});if(remoteAudio.srcObject)remoteAudio.play().catch(()=>{});toast('Connected')}
+            else if(s==='disconnected'){toast('Connection unstable...')}
+            else if(s==='failed'){toast('Connection failed');endCall()}
+        };
+        if(mediaCheckInterval)clearInterval(mediaCheckInterval);
+        mediaCheckInterval=setInterval(()=>{if(callState==='idle'){clearInterval(mediaCheckInterval);mediaCheckInterval=null;return}if(remoteVideo.srcObject&&remoteVideo.paused)remoteVideo.play().catch(()=>{});if(remoteAudio.srcObject&&remoteAudio.paused)remoteAudio.play().catch(()=>{})},2000);
+    }
+
+    function showCallOverlay(partnerId,statusText){
+        const partner=USERS.find(u=>u.id===partnerId);
+        if(currentCallIsVideo){
+            document.getElementById('callVoiceInfo').style.display='none';
+            document.getElementById('callVideoArea').classList.add('show');
+            document.getElementById('localVideo').srcObject=localStream;
+            document.getElementById('callVideoName').textContent=partner?.username||'Unknown';
+            document.getElementById('callVideoTimer').textContent='';
+            document.getElementById('callVideoHeader').classList.remove('show');
+            document.getElementById('cameraBtn').style.display='flex';
+            document.getElementById('remoteAudio').muted=true;
+        }else{
+            document.getElementById('callVoiceInfo').style.display='flex';
+            document.getElementById('callVideoArea').classList.remove('show');
+            document.getElementById('callOverlayDp').src=getDp(partner);document.getElementById('callOverlayDp').onerror=function(){imgFall(this)};
+            document.getElementById('callOverlayName').textContent=partner?.username||'Unknown';
+            document.getElementById('callOverlayStatus').textContent=statusText;
+            document.getElementById('callOverlayStatus').style.display='block';
+            document.getElementById('callOverlayTimer').style.display='none';
+            document.getElementById('cameraBtn').style.display='none';
+            document.getElementById('remoteAudio').muted=false;
+        }
+        isMuted=false;isCameraOff=false;isSpeakerOn=false;
+        document.getElementById('muteBtn').className='call-ctrl off';document.getElementById('muteBtn').innerHTML='<i class="fas fa-microphone"></i>';
+        document.getElementById('cameraBtn').className='call-ctrl off';document.getElementById('cameraBtn').innerHTML='<i class="fas fa-video"></i>';
+        document.getElementById('speakerBtn').className='call-ctrl off';document.getElementById('speakerBtn').innerHTML='<i class="fas fa-volume-up"></i>';
+        document.getElementById('callOverlay').classList.add('open');
+        try{document.getElementById('remoteVideo').play()}catch(e){}
+        try{document.getElementById('remoteAudio').play()}catch(e){}
+    }
+
+    function startCallTimer(){callStartTime=Date.now();callTimerInterval=setInterval(()=>{const e=Math.floor((Date.now()-callStartTime)/1000);const t=fmtElapsed(e);document.getElementById('callOverlayTimer').textContent=t;if(currentCallIsVideo)updateVideoTimer()},1000)}
+    function updateVideoTimer(){if(!callStartTime)return;const e=Math.floor((Date.now()-callStartTime)/1000);document.getElementById('callVideoTimer').textContent=fmtElapsed(e)}
+    function startCallTimeout(){clearCallTimeout();callTimeout=setTimeout(()=>{if(callState==='calling'||callState==='connecting'){toast('Call not answered');sendCallSignal(otherUser.id,'cancel','{}');endCall()}},30000)}
+    function clearCallTimeout(){if(callTimeout){clearTimeout(callTimeout);callTimeout=null}}
+
+    document.getElementById('endCallBtn').addEventListener('click',()=>{if(callState!=='idle'&&otherUser)sendCallSignal(otherUser.id,'end','{}');endCall()});
+    function endCall(){
+        callState='idle';clearCallTimeout();stopRingtone();
+        if(mediaCheckInterval){clearInterval(mediaCheckInterval);mediaCheckInterval=null}
+        if(callTimerInterval){clearInterval(callTimerInterval);callTimerInterval=null}
+        if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null}
+        if(peerConnection){peerConnection.close();peerConnection=null}
+        iceQueue=[];pendingOffer=null;
+        const ra=document.getElementById('remoteAudio'),rv=document.getElementById('remoteVideo'),lv=document.getElementById('localVideo');
+        ra.pause();ra.srcObject=null;ra.muted=false;rv.pause();rv.srcObject=null;lv.pause();lv.srcObject=null;
+        document.getElementById('callOverlay').classList.remove('open');
+        document.getElementById('callVideoArea').classList.remove('show');
+        document.getElementById('callVideoHeader').classList.remove('show');
+        document.getElementById('incomingOverlay').classList.remove('open');
+        cleanupCallRecords();
+    }
+    async function cleanupCallRecords(){try{await db.from('calls').delete().eq('sender_id',currentUser.id);await db.from('calls').delete().eq('receiver_id',currentUser.id)}catch(e){}}
+
+    async function acquireMedia(isVideo){
+        try{localStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:isVideo?{facingMode:'user',width:{ideal:640},height:{ideal:480}}:false});return true}
+        catch(e){console.error('Media error:',e);if(e.name==='NotFoundError')toast('No microphone/camera found');else if(e.name==='NotAllowedError')toast('Permission denied for mic/camera');else toast('Media error: '+e.message);return false}
+    }
+
+    document.getElementById('muteBtn').addEventListener('click',()=>{isMuted=!isMuted;if(localStream)localStream.getAudioTracks().forEach(t=>{t.enabled=!isMuted});const b=document.getElementById('muteBtn');b.className=isMuted?'call-ctrl on':'call-ctrl off';b.innerHTML=isMuted?'<i class="fas fa-microphone-slash"></i>':'<i class="fas fa-microphone"></i>'});
+    document.getElementById('speakerBtn').addEventListener('click',()=>{isSpeakerOn=!isSpeakerOn;const b=document.getElementById('speakerBtn');b.className=isSpeakerOn?'call-ctrl on':'call-ctrl off';b.innerHTML=isSpeakerOn?'<i class="fas fa-volume-up"></i>':'<i class="fas fa-volume-mute"></i>';document.getElementById('remoteAudio').volume=isSpeakerOn?1:.3;document.getElementById('remoteVideo').volume=isSpeakerOn?1:.3});
+    document.getElementById('cameraBtn').addEventListener('click',()=>{isCameraOff=!isCameraOff;if(localStream)localStream.getVideoTracks().forEach(t=>{t.enabled=!isCameraOff});const b=document.getElementById('cameraBtn');b.className=isCameraOff?'call-ctrl on':'call-ctrl off';b.innerHTML=isCameraOff?'<i class="fas fa-video-slash"></i>':'<i class="fas fa-video"></i>'});
+</script>
+</body>
+</html>
