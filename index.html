@@ -731,7 +731,7 @@ document.getElementById('muteBtn').onclick = function() {
 };
 document.getElementById('speakerBtn').onclick = function() {
     isSpeakerOn=!isSpeakerOn; var b=document.getElementById('speakerBtn'); b.className=isSpeakerOn?'call-ctrl on':'call-ctrl off'; b.innerHTML=isSpeakerOn?'<i class="fas fa-volume-up"></i>':'<i class="fas fa-volume-mute"></i>';
-    document.getElementById('remoteAudio').volume=isSpeakerOn?1:0.3; document.getElementById('remoteVideo').volume=isSpeakerOn?1:0.3;
+    document.getElementById('remoteAudio').volume=isSpeakerOn?0.7:0.15; document.getElementById('remoteVideo').volume=isSpeakerOn?0.7:0.15;
 };
 document.getElementById('cameraBtn').onclick = function() {
     isCameraOff=!isCameraOff; if(localStream) localStream.getVideoTracks().forEach(function(t){t.enabled=!isCameraOff;});
